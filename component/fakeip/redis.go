@@ -28,24 +28,6 @@ type redisStore struct {
 	prefix   string // Key prefix: "fakeip" or "fakeip6"
 }
 
-// Lua script: atomically store bidirectional host<->ip mapping
-const storeMappingScript = `
-redis.call("SET", KEYS[1], ARGV[2])
-redis.call("SET", KEYS[2], ARGV[1])
-return "OK"
-`
-
-// Lua script: atomically delete bidirectional ip<->host mapping
-const deleteMappingScript = `
-local host = redis.call("GET", KEYS[1])
-if host then
-	local hostKey = string.sub(host, 1, -1)
-	redis.call("DEL", hostKey)
-end
-redis.call("DEL", KEYS[1])
-return "OK"
-`
-
 // newRedisStore creates a new Redis-based store
 func newRedisStore(config *RedisConfig, ipNet netip.Prefix) (*redisStore, error) {
 	if config.Addr == "" {
@@ -143,14 +125,13 @@ func (r *redisStore) GetByHost(host string) (netip.Addr, bool) {
 	return netip.Addr{}, false
 }
 
-// PutByHost stores bidirectional host<->ip mapping atomically
+// PutByHost stores host->ip mapping
 func (r *redisStore) PutByHost(host string, ip netip.Addr) error {
 	hostKey := r.prefix + ":" + "host:" + host
-	ipKey := r.prefix + ":" + "ip:" + ip.String()
 
-	_, err := r.master.Eval(r.ctx, storeMappingScript, []string{hostKey, ipKey}, host, ip.String()).Result()
+	err := r.master.Set(r.ctx, hostKey, ip.String(), 0).Err()
 	if err != nil {
-		log.Warnln("[FakeIP] Failed to store mapping: %v", err)
+		log.Warnln("[FakeIP] Failed to store host->ip mapping: %v", err)
 		return err
 	}
 	return nil
@@ -170,26 +151,25 @@ func (r *redisStore) GetByIP(ip netip.Addr) (string, bool) {
 	return "", false
 }
 
-// PutByIP stores bidirectional ip<->host mapping atomically
+// PutByIP stores ip->host mapping
 func (r *redisStore) PutByIP(ip netip.Addr, host string) error {
 	ipKey := r.prefix + ":" + "ip:" + ip.String()
-	hostKey := r.prefix + ":" + "host:" + host
 
-	_, err := r.master.Eval(r.ctx, storeMappingScript, []string{hostKey, ipKey}, host, ip.String()).Result()
+	err := r.master.Set(r.ctx, ipKey, host, 0).Err()
 	if err != nil {
-		log.Warnln("[FakeIP] Failed to store mapping: %v", err)
+		log.Warnln("[FakeIP] Failed to store ip->host mapping: %v", err)
 		return err
 	}
 	return nil
 }
 
-// DelByIP atomically deletes bidirectional ip<->host mapping
+// DelByIP deletes ip->host mapping
 func (r *redisStore) DelByIP(ip netip.Addr) error {
 	ipKey := r.prefix + ":" + "ip:" + ip.String()
 
-	_, err := r.master.Eval(r.ctx, deleteMappingScript, []string{ipKey}).Result()
+	err := r.master.Del(r.ctx, ipKey).Err()
 	if err != nil {
-		log.Warnln("[FakeIP] Failed to delete mapping: %v", err)
+		log.Warnln("[FakeIP] Failed to delete ip->host mapping: %v", err)
 		return err
 	}
 	return nil
