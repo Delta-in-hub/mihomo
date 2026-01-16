@@ -18,10 +18,10 @@ const (
 
 type store interface {
 	GetByHost(host string) (netip.Addr, bool)
-	PutByHost(host string, ip netip.Addr)
+	PutByHost(host string, ip netip.Addr) error
 	GetByIP(ip netip.Addr) (string, bool)
-	PutByIP(ip netip.Addr, host string)
-	DelByIP(ip netip.Addr)
+	PutByIP(ip netip.Addr, host string) error
+	DelByIP(ip netip.Addr) error
 	Exist(ip netip.Addr) bool
 	CloneTo(store)
 	FlushFakeIP() error
@@ -50,8 +50,14 @@ func (p *Pool) Lookup(host string) netip.Addr {
 		return ip
 	}
 
-	ip := p.get(host)
-	p.store.PutByHost(host, ip)
+	ip, err := p.get(host)
+	if err != nil {
+		return netip.Addr{}
+	}
+	err = p.store.PutByHost(host, ip)
+	if err != nil {
+		return netip.Addr{}
+	}
 	return ip
 }
 
@@ -91,7 +97,7 @@ func (p *Pool) CloneFrom(o *Pool) {
 	o.store.CloneTo(p.store)
 }
 
-func (p *Pool) get(host string) netip.Addr {
+func (p *Pool) get(host string) (netip.Addr, error) {
 	p.offset = p.offset.Next()
 
 	if !p.offset.Less(p.last) {
@@ -100,11 +106,17 @@ func (p *Pool) get(host string) netip.Addr {
 	}
 
 	if p.cycle || p.store.Exist(p.offset) {
-		p.store.DelByIP(p.offset)
+		err := p.store.DelByIP(p.offset)
+		if err != nil {
+			return netip.Addr{}, err
+		}
 	}
 
-	p.store.PutByIP(p.offset, host)
-	return p.offset
+	err := p.store.PutByIP(p.offset, host)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	return p.offset, nil
 }
 
 func (p *Pool) FlushFakeIP() error {
@@ -118,15 +130,34 @@ func (p *Pool) FlushFakeIP() error {
 
 func (p *Pool) StoreState() {
 	if s, ok := p.store.(*cachefileStore); ok {
-		s.PutByHost(offsetKey, p.offset)
+		_ = s.PutByHost(offsetKey, p.offset)
 		if p.cycle {
-			s.PutByHost(cycleKey, p.offset)
+			_ = s.PutByHost(cycleKey, p.offset)
+		}
+	} else if s, ok := p.store.(*redisStore); ok {
+		_ = s.PutByHost(offsetKey, p.offset)
+		if p.cycle {
+			_ = s.PutByHost(cycleKey, p.offset)
 		}
 	}
 }
 
 func (p *Pool) restoreState() {
 	if s, ok := p.store.(*cachefileStore); ok {
+		if _, exist := s.GetByHost(cycleKey); exist {
+			p.cycle = true
+		}
+
+		if offset, exist := s.GetByHost(offsetKey); exist {
+			if p.ipnet.Contains(offset) {
+				p.offset = offset
+			} else {
+				_ = p.FlushFakeIP()
+			}
+		} else if s.Exist(p.first) {
+			_ = p.FlushFakeIP()
+		}
+	} else if s, ok := p.store.(*redisStore); ok {
 		if _, exist := s.GetByHost(cycleKey); exist {
 			p.cycle = true
 		}
@@ -153,6 +184,10 @@ type Options struct {
 	// Persistence will save the data to disk.
 	// Size will not work and record will be fully stored.
 	Persistence bool
+
+	// Redis config for distributed FakeIP storage
+	// If set, Redis will be used instead of file-based persistence
+	Redis *RedisConfig
 }
 
 // New return Pool instance
@@ -176,7 +211,15 @@ func New(options Options) (*Pool, error) {
 		cycle:   false,
 		ipnet:   options.IPNet,
 	}
-	if options.Persistence {
+
+	// 选择存储后端：Redis > 文件持久化 > 内存
+	if options.Redis != nil {
+		store, err := newRedisStore(options.Redis, options.IPNet)
+		if err != nil {
+			return nil, err
+		}
+		pool.store = store
+	} else if options.Persistence {
 		pool.store = newCachefileStore(cachefile.Cache(), options.IPNet)
 	} else {
 		pool.store = newMemoryStore(options.Size)

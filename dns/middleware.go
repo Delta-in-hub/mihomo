@@ -163,6 +163,9 @@ func withFakeIP(skipper *fakeip.Skipper, fakePool *fakeip.Pool, fakePool6 *fakei
 					return handleMsgWithEmptyAnswer(r), nil
 				}
 				ip := fakePool.Lookup(host)
+				if !ip.IsValid() {
+					return handleMsgWithEmptyAnswer(r), nil
+				}
 				rr = &D.A{
 					Hdr: D.RR_Header{Name: q.Name, Rrtype: D.TypeA, Class: D.ClassINET, Ttl: dnsDefaultTTL},
 					A:   ip.AsSlice(),
@@ -172,6 +175,9 @@ func withFakeIP(skipper *fakeip.Skipper, fakePool *fakeip.Pool, fakePool6 *fakei
 					return handleMsgWithEmptyAnswer(r), nil
 				}
 				ip := fakePool6.Lookup(host)
+				if !ip.IsValid() {
+					return handleMsgWithEmptyAnswer(r), nil
+				}
 				rr = &D.AAAA{
 					Hdr:  D.RR_Header{Name: q.Name, Rrtype: D.TypeAAAA, Class: D.ClassINET, Ttl: dnsDefaultTTL},
 					AAAA: ip.AsSlice(),

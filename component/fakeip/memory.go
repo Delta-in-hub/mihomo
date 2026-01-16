@@ -23,8 +23,9 @@ func (m *memoryStore) GetByHost(host string) (netip.Addr, bool) {
 }
 
 // PutByHost implements store.PutByHost
-func (m *memoryStore) PutByHost(host string, ip netip.Addr) {
+func (m *memoryStore) PutByHost(host string, ip netip.Addr) error {
 	m.cacheIP.Set(host, ip)
+	return nil
 }
 
 // GetByIP implements store.GetByIP
@@ -39,16 +40,18 @@ func (m *memoryStore) GetByIP(ip netip.Addr) (string, bool) {
 }
 
 // PutByIP implements store.PutByIP
-func (m *memoryStore) PutByIP(ip netip.Addr, host string) {
+func (m *memoryStore) PutByIP(ip netip.Addr, host string) error {
 	m.cacheHost.Set(ip, host)
+	return nil
 }
 
 // DelByIP implements store.DelByIP
-func (m *memoryStore) DelByIP(ip netip.Addr) {
+func (m *memoryStore) DelByIP(ip netip.Addr) error {
 	if host, exist := m.cacheHost.Get(ip); exist {
 		m.cacheIP.Delete(host)
 	}
 	m.cacheHost.Delete(ip)
+	return nil
 }
 
 // Exist implements store.Exist

@@ -231,6 +231,7 @@ type RawDNS struct {
 	FakeIPFilter                 []string                            `yaml:"fake-ip-filter" json:"fake-ip-filter"`
 	FakeIPFilterMode             C.FilterMode                        `yaml:"fake-ip-filter-mode" json:"fake-ip-filter-mode"`
 	FakeIPTTL                    int                                 `yaml:"fake-ip-ttl" json:"fake-ip-ttl"`
+	FakeIPRedis                  *RawFakeIPRedis                     `yaml:"fake-ip-redis" json:"fake-ip-redis"`
 	DefaultNameserver            []string                            `yaml:"default-nameserver" json:"default-nameserver"`
 	CacheAlgorithm               string                              `yaml:"cache-algorithm" json:"cache-algorithm"`
 	CacheMaxSize                 int                                 `yaml:"cache-max-size" json:"cache-max-size"`
@@ -238,6 +239,16 @@ type RawDNS struct {
 	ProxyServerNameserver        []string                            `yaml:"proxy-server-nameserver" json:"proxy-server-nameserver"`
 	DirectNameServer             []string                            `yaml:"direct-nameserver" json:"direct-nameserver"`
 	DirectNameServerFollowPolicy bool                                `yaml:"direct-nameserver-follow-policy" json:"direct-nameserver-follow-policy"`
+}
+
+// RawFakeIPRedis FakeIP Redis 配置
+type RawFakeIPRedis struct {
+	Enable       bool     `yaml:"enable" json:"enable"`
+	Addr         string   `yaml:"addr" json:"addr"`
+	ReplicaAddrs []string `yaml:"replica-addrs" json:"replica-addrs"`
+	Username     string   `yaml:"username" json:"username"`
+	Password     string   `yaml:"password" json:"password"`
+	DB           int      `yaml:"db" json:"db"`
 }
 
 type RawFallbackFilter struct {
@@ -1474,11 +1485,39 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 		dnsCfg.FakeIPSkipper = skipper
 		dnsCfg.FakeIPTTL = cfg.FakeIPTTL
 
+		// 准备 Redis 配置（如果启用）
+		var redisConfig *fakeip.RedisConfig
+		if rawCfg.DNS.FakeIPRedis != nil && rawCfg.DNS.FakeIPRedis.Enable {
+			if rawCfg.DNS.FakeIPRedis.Addr == "" {
+				return nil, errors.New("dns.fake-ip-redis.addr is required when fake-ip-redis is enabled")
+			}
+
+			// 设置默认值
+			replicaAddrs := rawCfg.DNS.FakeIPRedis.ReplicaAddrs
+			if replicaAddrs == nil {
+				replicaAddrs = []string{} // 默认为空切片
+			}
+
+			db := rawCfg.DNS.FakeIPRedis.DB
+			if db < 0 || db > 15 {
+				return nil, errors.New("dns.fake-ip-redis.db must be between 0 and 15")
+			}
+
+			redisConfig = &fakeip.RedisConfig{
+				Addr:         rawCfg.DNS.FakeIPRedis.Addr,
+				ReplicaAddrs: replicaAddrs,
+				Username:     rawCfg.DNS.FakeIPRedis.Username,
+				Password:     rawCfg.DNS.FakeIPRedis.Password,
+				DB:           db,
+			}
+		}
+
 		if dnsCfg.FakeIPRange.IsValid() {
 			pool, err := fakeip.New(fakeip.Options{
 				IPNet:       dnsCfg.FakeIPRange,
 				Size:        1000,
 				Persistence: rawCfg.Profile.StoreFakeIP,
+				Redis:       redisConfig,
 			})
 			if err != nil {
 				return nil, err
@@ -1491,6 +1530,7 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 				IPNet:       dnsCfg.FakeIPRange6,
 				Size:        1000,
 				Persistence: rawCfg.Profile.StoreFakeIP,
+				Redis:       redisConfig,
 			})
 			if err != nil {
 				return nil, err

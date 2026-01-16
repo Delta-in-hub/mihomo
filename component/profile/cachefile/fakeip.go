@@ -3,8 +3,6 @@ package cachefile
 import (
 	"net/netip"
 
-	"github.com/metacubex/mihomo/log"
-
 	"github.com/metacubex/bbolt"
 )
 
@@ -36,20 +34,17 @@ func (c *FakeIpStore) GetByHost(host string) (ip netip.Addr, exist bool) {
 	return
 }
 
-func (c *FakeIpStore) PutByHost(host string, ip netip.Addr) {
+func (c *FakeIpStore) PutByHost(host string, ip netip.Addr) error {
 	if c.DB == nil {
-		return
+		return nil
 	}
-	err := c.DB.Batch(func(t *bbolt.Tx) error {
+	return c.DB.Batch(func(t *bbolt.Tx) error {
 		bucket, err := t.CreateBucketIfNotExists(c.bucketName)
 		if err != nil {
 			return err
 		}
 		return bucket.Put([]byte(host), ip.AsSlice())
 	})
-	if err != nil {
-		log.Warnln("[CacheFile] write cache to %s failed: %s", c.DB.Path(), err.Error())
-	}
 }
 
 func (c *FakeIpStore) GetByIP(ip netip.Addr) (host string, exist bool) {
@@ -67,29 +62,26 @@ func (c *FakeIpStore) GetByIP(ip netip.Addr) (host string, exist bool) {
 	return
 }
 
-func (c *FakeIpStore) PutByIP(ip netip.Addr, host string) {
+func (c *FakeIpStore) PutByIP(ip netip.Addr, host string) error {
 	if c.DB == nil {
-		return
+		return nil
 	}
-	err := c.DB.Batch(func(t *bbolt.Tx) error {
+	return c.DB.Batch(func(t *bbolt.Tx) error {
 		bucket, err := t.CreateBucketIfNotExists(c.bucketName)
 		if err != nil {
 			return err
 		}
 		return bucket.Put(ip.AsSlice(), []byte(host))
 	})
-	if err != nil {
-		log.Warnln("[CacheFile] write cache to %s failed: %s", c.DB.Path(), err.Error())
-	}
 }
 
-func (c *FakeIpStore) DelByIP(ip netip.Addr) {
+func (c *FakeIpStore) DelByIP(ip netip.Addr) error {
 	if c.DB == nil {
-		return
+		return nil
 	}
 
 	addr := ip.AsSlice()
-	err := c.DB.Batch(func(t *bbolt.Tx) error {
+	return c.DB.Batch(func(t *bbolt.Tx) error {
 		bucket, err := t.CreateBucketIfNotExists(c.bucketName)
 		if err != nil {
 			return err
@@ -103,9 +95,6 @@ func (c *FakeIpStore) DelByIP(ip netip.Addr) {
 		}
 		return err
 	})
-	if err != nil {
-		log.Warnln("[CacheFile] write cache to %s failed: %s", c.DB.Path(), err.Error())
-	}
 }
 
 func (c *FakeIpStore) FlushFakeIP() error {

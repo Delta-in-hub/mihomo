@@ -263,6 +263,18 @@ dns:
   fake-ip-range: 198.18.0.1/16 # fake-ip 池设置
   # fake-ip-range6: fdfe:dcba:9876::1/64 # fake-ip6 池设置
 
+  # 分布式 fake-ip Redis 共享池配置
+  # fake-ip-redis:
+  #   enable: false # 是否启用 Redis 存储（默认: false）
+  #   addr: 127.0.0.1:6379 # Master 节点地址（可读可写，必需）
+  #   # replica-addrs: [] # Replica 节点地址列表（只读,会按照顺序依次读，可配置master节点，默认: 空）
+  #   #   - 127.0.0.1:6379
+  #   #   - 127.0.0.1:6380
+  #   #   - 127.0.0.1:6381
+  #   # username: "" # Redis 用户名（默认: 空）
+  #   # password: "" # Redis 密码（默认: 空）
+  #   # db: 0 # Redis 数据库编号 0-15（默认: 0）
+
   # 配置不使用 fake-ip 的域名
   fake-ip-filter:
     - '*.lan'

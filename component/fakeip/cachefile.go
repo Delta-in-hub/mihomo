@@ -16,8 +16,8 @@ func (c *cachefileStore) GetByHost(host string) (netip.Addr, bool) {
 }
 
 // PutByHost implements store.PutByHost
-func (c *cachefileStore) PutByHost(host string, ip netip.Addr) {
-	c.cache.PutByHost(host, ip)
+func (c *cachefileStore) PutByHost(host string, ip netip.Addr) error {
+	return c.cache.PutByHost(host, ip)
 }
 
 // GetByIP implements store.GetByIP
@@ -26,13 +26,13 @@ func (c *cachefileStore) GetByIP(ip netip.Addr) (string, bool) {
 }
 
 // PutByIP implements store.PutByIP
-func (c *cachefileStore) PutByIP(ip netip.Addr, host string) {
-	c.cache.PutByIP(ip, host)
+func (c *cachefileStore) PutByIP(ip netip.Addr, host string) error {
+	return c.cache.PutByIP(ip, host)
 }
 
 // DelByIP implements store.DelByIP
-func (c *cachefileStore) DelByIP(ip netip.Addr) {
-	c.cache.DelByIP(ip)
+func (c *cachefileStore) DelByIP(ip netip.Addr) error {
+	return c.cache.DelByIP(ip)
 }
 
 // Exist implements store.Exist
