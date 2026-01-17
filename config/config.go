@@ -249,6 +249,7 @@ type RawFakeIPRedis struct {
 	Username     string   `yaml:"username" json:"username"`
 	Password     string   `yaml:"password" json:"password"`
 	DB           int      `yaml:"db" json:"db"`
+	Role         string   `yaml:"fake-ip-role" json:"fake-ip-role"` // master or replica
 }
 
 type RawFallbackFilter struct {
@@ -1518,6 +1519,7 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 				Size:        1000,
 				Persistence: rawCfg.Profile.StoreFakeIP,
 				Redis:       redisConfig,
+				Role:        rawCfg.DNS.FakeIPRedis.Role,
 			})
 			if err != nil {
 				return nil, err
@@ -1531,6 +1533,7 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 				Size:        1000,
 				Persistence: rawCfg.Profile.StoreFakeIP,
 				Redis:       redisConfig,
+				Role:        rawCfg.DNS.FakeIPRedis.Role,
 			})
 			if err != nil {
 				return nil, err

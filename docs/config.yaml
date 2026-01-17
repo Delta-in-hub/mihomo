@@ -266,6 +266,7 @@ dns:
   # 分布式 fake-ip Redis 共享池配置
   # fake-ip-redis:
   #   enable: false # 是否启用 Redis 存储（默认: false）
+  #   fake-ip-role: master # fake-ip 角色，可选值：master, replica（默认: master） replica不可分配新IP，仅读取已有映射
   #   addr: 127.0.0.1:6379 # Master 节点地址（可读可写，必需）
   #   # replica-addrs: [] # Replica 节点地址列表（只读,会按照顺序依次读，可配置master节点，默认: 空）
   #   #   - 127.0.0.1:6379

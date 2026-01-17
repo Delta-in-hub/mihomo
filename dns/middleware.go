@@ -164,6 +164,7 @@ func withFakeIP(skipper *fakeip.Skipper, fakePool *fakeip.Pool, fakePool6 *fakei
 				}
 				ip := fakePool.Lookup(host)
 				if !ip.IsValid() {
+					log.Warnln("[FakeIP] failed to lookup IP for host: %s", host)
 					return handleMsgWithEmptyAnswer(r), nil
 				}
 				rr = &D.A{
@@ -176,6 +177,7 @@ func withFakeIP(skipper *fakeip.Skipper, fakePool *fakeip.Pool, fakePool6 *fakei
 				}
 				ip := fakePool6.Lookup(host)
 				if !ip.IsValid() {
+					log.Warnln("[FakeIP] failed to lookup IP for host: %s", host)
 					return handleMsgWithEmptyAnswer(r), nil
 				}
 				rr = &D.AAAA{

@@ -42,7 +42,8 @@ func newRedisStore(config *RedisConfig, ipNet netip.Prefix) (*redisStore, error)
 		Username:     config.Username,
 		Password:     config.Password,
 		DB:           config.DB,
-		DialTimeout:  2 * time.Second,
+		MaxRetries:   -1, // Disable retry
+		DialTimeout:  time.Second,
 		ReadTimeout:  time.Second,
 		WriteTimeout: time.Second,
 	})
@@ -68,7 +69,8 @@ func newRedisStore(config *RedisConfig, ipNet netip.Prefix) (*redisStore, error)
 			Username:     config.Username,
 			Password:     config.Password,
 			DB:           config.DB,
-			DialTimeout:  2 * time.Second,
+			MaxRetries:   -1, // Disable retry
+			DialTimeout:  time.Second,
 			ReadTimeout:  time.Second,
 			WriteTimeout: time.Second,
 		})
@@ -110,9 +112,13 @@ func newRedisStore(config *RedisConfig, ipNet netip.Prefix) (*redisStore, error)
 func (r *redisStore) GetByHost(host string) (netip.Addr, bool) {
 	key := r.prefix + ":" + "host:" + host
 
-	for _, replica := range r.replicas {
+	for i, replica := range r.replicas {
 		val, err := replica.Get(r.ctx, key).Result()
 		if err == nil {
+			// Move successful replica to front for faster subsequent queries
+			if i > 0 {
+				r.replicas[0], r.replicas[i] = r.replicas[i], r.replicas[0]
+			}
 			ip, err := netip.ParseAddr(val)
 			if err != nil {
 				log.Warnln("[FakeIP] Invalid IP in Redis: %s", val)
@@ -141,9 +147,13 @@ func (r *redisStore) PutByHost(host string, ip netip.Addr) error {
 func (r *redisStore) GetByIP(ip netip.Addr) (string, bool) {
 	key := r.prefix + ":" + "ip:" + ip.String()
 
-	for _, replica := range r.replicas {
+	for i, replica := range r.replicas {
 		val, err := replica.Get(r.ctx, key).Result()
 		if err == nil {
+			// Move successful replica to front for faster subsequent queries
+			if i > 0 {
+				r.replicas[0], r.replicas[i] = r.replicas[i], r.replicas[0]
+			}
 			return val, true
 		}
 	}
@@ -179,9 +189,13 @@ func (r *redisStore) DelByIP(ip netip.Addr) error {
 func (r *redisStore) Exist(ip netip.Addr) bool {
 	key := r.prefix + ":" + "ip:" + ip.String()
 
-	for _, replica := range r.replicas {
+	for i, replica := range r.replicas {
 		_, err := replica.Get(r.ctx, key).Result()
 		if err == nil {
+			// Move successful replica to front for faster subsequent queries
+			if i > 0 {
+				r.replicas[0], r.replicas[i] = r.replicas[i], r.replicas[0]
+			}
 			return true
 		}
 	}

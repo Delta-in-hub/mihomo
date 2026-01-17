@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/metacubex/mihomo/component/profile/cachefile"
+	"github.com/metacubex/mihomo/log"
 
 	"go4.org/netipx"
 )
@@ -37,6 +38,7 @@ type Pool struct {
 	mux     sync.Mutex
 	ipnet   netip.Prefix
 	store   store
+	role    string // "master" or "replica"
 }
 
 // Lookup return a fake ip with host
@@ -48,6 +50,11 @@ func (p *Pool) Lookup(host string) netip.Addr {
 	host = strings.ToLower(host)
 	if ip, exist := p.store.GetByHost(host); exist {
 		return ip
+	}
+
+	// Replica mode: only read existing mappings, don't allocate new ones
+	if p.role == "replica" {
+		return netip.Addr{}
 	}
 
 	ip, err := p.get(host)
@@ -120,6 +127,11 @@ func (p *Pool) get(host string) (netip.Addr, error) {
 }
 
 func (p *Pool) FlushFakeIP() error {
+	// Replica mode: read-only, don't allow flush
+	if p.role == "replica" {
+		return errors.New("replica mode does not support flush operation")
+	}
+
 	err := p.store.FlushFakeIP()
 	if err == nil {
 		p.cycle = false
@@ -135,6 +147,10 @@ func (p *Pool) StoreState() {
 			_ = s.PutByHost(cycleKey, p.offset)
 		}
 	} else if s, ok := p.store.(*redisStore); ok {
+		if p.role == "replica" {
+			log.Warnln("replica mode does not support StoreState operation")
+			return
+		}
 		_ = s.PutByHost(offsetKey, p.offset)
 		if p.cycle {
 			_ = s.PutByHost(cycleKey, p.offset)
@@ -188,6 +204,9 @@ type Options struct {
 	// Redis config for distributed FakeIP storage
 	// If set, Redis will be used instead of file-based persistence
 	Redis *RedisConfig
+
+	// Role: "master" or "replica". Replica mode is read-only
+	Role string
 }
 
 // New return Pool instance
@@ -203,6 +222,12 @@ func New(options Options) (*Pool, error) {
 		return nil, errors.New("ipnet don't have valid ip")
 	}
 
+	// Normalize role, default to "master"
+	role := options.Role
+	if role != "replica" && role != "master" {
+		role = "master"
+	}
+
 	pool := &Pool{
 		gateway: gateway,
 		first:   first,
@@ -210,6 +235,7 @@ func New(options Options) (*Pool, error) {
 		offset:  first.Prev(),
 		cycle:   false,
 		ipnet:   options.IPNet,
+		role:    role,
 	}
 
 	// 选择存储后端：Redis > 文件持久化 > 内存
