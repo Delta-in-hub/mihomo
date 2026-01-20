@@ -126,6 +126,14 @@ func (r *redisStore) GetByHost(host string) (netip.Addr, bool) {
 			}
 			return ip, true
 		}
+
+		// Key doesn't exist, no need to check other replicas
+		if errors.Is(err, redis.Nil) {
+			return netip.Addr{}, false
+		}
+
+		// Network error, try next replica
+		log.Warnln("[FakeIP] Failed to get host %s from replica %d: %v", host, i, err)
 	}
 
 	return netip.Addr{}, false
@@ -156,6 +164,14 @@ func (r *redisStore) GetByIP(ip netip.Addr) (string, bool) {
 			}
 			return val, true
 		}
+
+		// Key doesn't exist, no need to check other replicas
+		if errors.Is(err, redis.Nil) {
+			return "", false
+		}
+
+		// Network error, try next replica
+		log.Warnln("[FakeIP] Failed to get ip %s from replica %d: %v", ip, i, err)
 	}
 
 	return "", false
@@ -173,15 +189,33 @@ func (r *redisStore) PutByIP(ip netip.Addr, host string) error {
 	return nil
 }
 
-// DelByIP deletes ip->host mapping
+// DelByIP deletes both ip->host and host->ip mappings atomically
 func (r *redisStore) DelByIP(ip netip.Addr) error {
 	ipKey := r.prefix + ":" + "ip:" + ip.String()
 
-	err := r.master.Del(r.ctx, ipKey).Err()
+	// Use Lua script to atomically delete both mappings
+	deleteScript := `
+local ip_key = KEYS[1]
+local host = redis.call("GET", ip_key)
+if host then
+	local host_key = ARGV[1] .. host
+	redis.call("DEL", ip_key)
+	redis.call("DEL", host_key)
+	return 1
+else
+	redis.call("DEL", ip_key)
+	return 0
+end
+`
+
+	hostKeyPrefix := r.prefix + ":" + "host:"
+
+	_, err := r.master.Eval(r.ctx, deleteScript, []string{ipKey}, hostKeyPrefix).Result()
 	if err != nil {
-		log.Warnln("[FakeIP] Failed to delete ip->host mapping: %v", err)
+		log.Warnln("[FakeIP] Failed to delete mappings for IP %s: %v", ip, err)
 		return err
 	}
+
 	return nil
 }
 
@@ -198,6 +232,14 @@ func (r *redisStore) Exist(ip netip.Addr) bool {
 			}
 			return true
 		}
+
+		// Key doesn't exist, no need to check other replicas
+		if errors.Is(err, redis.Nil) {
+			return false
+		}
+
+		// Network error, try next replica
+		log.Warnln("[FakeIP] Failed to check existence of ip %s from replica %d: %v", ip, i, err)
 	}
 
 	return false

@@ -159,35 +159,85 @@ func (p *Pool) StoreState() {
 }
 
 func (p *Pool) restoreState() {
-	if s, ok := p.store.(*cachefileStore); ok {
-		if _, exist := s.GetByHost(cycleKey); exist {
-			p.cycle = true
+	if _, exist := p.store.GetByHost(cycleKey); exist {
+		p.cycle = true
+	}
+
+	if offset, exist := p.store.GetByHost(offsetKey); exist {
+		if !p.ipnet.Contains(offset) {
+			_ = p.FlushFakeIP()
+			return
 		}
 
-		if offset, exist := s.GetByHost(offsetKey); exist {
-			if p.ipnet.Contains(offset) {
-				p.offset = offset
-			} else {
-				_ = p.FlushFakeIP()
-			}
-		} else if s.Exist(p.first) {
+		p.offset = offset
+
+		// 验证已分配 IP 范围内的双向映射完整性
+		// 如果已循环，验证整个 first 到 last 范围
+		// 如果未循环，只验证 first 到 offset 范围
+		if !p.validateRangeIntegrity() {
+			log.Warnln("FakeIP: range integrity check failed, resetting")
 			_ = p.FlushFakeIP()
 		}
-	} else if s, ok := p.store.(*redisStore); ok {
-		if _, exist := s.GetByHost(cycleKey); exist {
-			p.cycle = true
+	} else if p.store.Exist(p.first) {
+		_ = p.FlushFakeIP()
+	}
+}
+
+// validateRangeIntegrity 验证已分配 IP 范围内的双向映射完整性
+// 如果 p.cycle 为 true，验证整个 first 到 last 范围（所有 IP 都已分配）
+// 如果 p.cycle 为 false，验证 first 到 offset 范围，并确保 offset.Next() 未被分配
+func (p *Pool) validateRangeIntegrity() bool {
+	var endIP netip.Addr
+	var checkNext bool
+
+	if p.cycle {
+		// 已循环：整个范围都已分配，验证到 last
+		endIP = p.last
+		checkNext = false
+	} else {
+		// 未循环：验证到 offset，并检查下一个是否未分配
+		endIP = p.offset
+		checkNext = true
+	}
+
+	// 遍历从 first 到 endIP 的所有 IP
+	for ip := p.first; ; ip = ip.Next() {
+		// 检查 ip -> host 映射是否存在
+		host, exist := p.store.GetByIP(ip)
+		if !exist {
+			log.Warnln("FakeIP: missing ip->host mapping for %s", ip)
+			return false
 		}
 
-		if offset, exist := s.GetByHost(offsetKey); exist {
-			if p.ipnet.Contains(offset) {
-				p.offset = offset
-			} else {
-				_ = p.FlushFakeIP()
-			}
-		} else if s.Exist(p.first) {
-			_ = p.FlushFakeIP()
+		// 检查 host -> ip 反向映射是否一致
+		reverseIP, ok := p.store.GetByHost(host)
+		if !ok || reverseIP != ip {
+			log.Warnln("FakeIP: inconsistent host->ip mapping for %s <-> %s", host, ip)
+			return false
+		}
+
+		// 到达结束点，检查完成
+		if ip == endIP {
+			break
 		}
 	}
+
+	// 如果未循环，验证 offset.Next() 是否未被分配
+	if checkNext {
+		nextIP := p.offset.Next()
+		if nextIP.IsValid() && p.store.Exist(nextIP) {
+			// offset 的下一个 IP 已经被分配，说明状态不一致
+			log.Warnln("FakeIP: next IP %s after offset %s should not be allocated", nextIP, p.offset)
+			return false
+		}
+	}
+
+	if p.cycle {
+		log.Infoln("FakeIP: validated all mappings from %s to %s (cycled), integrity OK", p.first, p.last)
+	} else {
+		log.Infoln("FakeIP: validated mappings from %s to %s, integrity OK", p.first, p.offset)
+	}
+	return true
 }
 
 type Options struct {
